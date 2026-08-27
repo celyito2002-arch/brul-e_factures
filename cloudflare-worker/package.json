@@ -1,0 +1,12 @@
+{
+  "name": "brulee-gmail-worker",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^3",
+    "@cloudflare/workers-types": "^4",
+    "typescript": "^5"
+  }
+}
