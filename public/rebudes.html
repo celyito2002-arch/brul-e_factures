@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factures rebudes · Brulée</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@400;500;600;700&family=Rubik+Spray+Paint&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#080808;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased;color:#F2F0E9}
+  a{color:#F5B800;text-decoration:none}
+  button{font-family:inherit;cursor:pointer}
+  .row-hover:hover{background:#131313}
+  .icon-btn:hover{background:rgba(242,240,233,.07)!important;color:#F2F0E9!important}
+  .node:hover{background:#131313}
+  aside a:hover{color:#F2F0E9}
+</style>
+</head>
+<body>
+<input id="fileInput" type="file" accept=".pdf,.jpg,.jpeg,.png" style="display:none">
+<div style="display:grid;grid-template-columns:232px 1fr;min-height:100vh">
+  <div id="sidebar"></div>
+  <main style="min-width:0;padding:24px 30px 40px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="position:relative">
+        <h1 style="margin:0;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:32px;letter-spacing:.1em;text-transform:uppercase;line-height:1">Factures rebudes</h1>
+        <svg width="110" height="8" viewBox="0 0 110 8" preserveAspectRatio="none" style="display:block;margin-top:6px"><path d="M2 4.5 C30 2.5 72 5.5 108 3.5" stroke="#F5B800" stroke-width="2.6" fill="none" stroke-dasharray="64 0 20 2.5 11 3 5"></path></svg>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:#8A867D"><span style="width:7px;height:7px;border-radius:50%;background:#9DBF8E;box-shadow:0 0 6px rgba(157,191,142,.6)"></span><span id="syncText">Connectat · SQLite local</span></span>
+        <button id="btnImport" style="display:flex;align-items:center;gap:8px;padding:10px 18px;border:none;border-radius:4px 9px 5px 10px;background:#F5B800;color:#080808;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14px;letter-spacing:.12em;text-transform:uppercase">Importar PDF <span style="font-size:16px;line-height:0">+</span></button>
+      </div>
+    </div>
+
+    <div style="border:1px solid rgba(242,240,233,.09);border-radius:8px;background:#0f0f0f;overflow:hidden">
+      <div id="tree"></div>
+    </div>
+  </main>
+</div>
+<div id="detailRoot"></div>
+
+<script src="/common.js"></script>
+<script>
+(function () {
+  "use strict";
+  var B = window.Brulee;
+  var state = { rows: [], expanded: {}, detailRow: null, loaded: false };
+
+  document.getElementById('sidebar').innerHTML = B.sidebarHTML('rebudes');
+
+  // Expandeix per defecte l'any/trimestre/mes actuals.
+  (function defaults() {
+    var now = new Date();
+    var y = String(now.getFullYear());
+    var mm = now.getMonth() + 1;
+    state.expanded['y:' + y] = true;
+    state.expanded['q:' + y + ':' + B.getTrimestre(mm)] = true;
+    state.expanded['m:' + y + '-' + String(mm).padStart(2, '0')] = true;
+  })();
+
+  function mapFactura(f) {
+    return { id:f.id, type:'recibida', num:f.numero||('#'+f.id), client:f.proveidorNom||'Sense nom',
+      tipo:B.TIPUS_LABEL[f.tipus]||f.tipus||'—', conf:Math.round((f.confian_ia!=null?f.confian_ia:0)*100),
+      issued:B.fmtDataCurta(f.dataDocument), issuedLlarg:B.fmtDataLlarga(f.dataDocument),
+      due:B.fmtDataCurta(f.dataVenciment), dueLlarg:B.fmtDataLlarga(f.dataVenciment), dueDays:B.diesFins(f.dataVenciment),
+      amount:f.total!=null?f.total:0, estat:f.estat, concepte:f.concepte };
+  }
+
+  function fetchAll() {
+    var acc = [];
+    function page(p) {
+      return B.api('/api/factures?page='+p+'&limit=100').then(function (res) {
+        acc = acc.concat(res.dades);
+        if (p < res.pages) return page(p + 1);
+        return acc;
+      });
+    }
+    return page(1);
+  }
+
+  // Construeix l'arbre Any → Trimestre → Mes a partir de les factures.
+  function construirArbre() {
+    var anys = {}; // y -> { count, total, trims: { qn -> { ordre, count, total, mesos: { mk -> { label, count, total, rows } } } } }
+    state.rows.forEach(function (f) {
+      var mapped = mapFactura(f);
+      var y, qn, qOrdre, mk, mlabel;
+      var d = f.dataDocument || '';
+      if (/^\d{4}-\d{2}-\d{2}/.test(d)) {
+        y = d.slice(0, 4);
+        var mm = parseInt(d.slice(5, 7), 10);
+        qn = B.getTrimestre(mm); qOrdre = Math.ceil(mm / 3);
+        mk = d.slice(0, 7); mlabel = B.MESOS_CA[mm - 1] + ' ' + y;
+      } else {
+        y = 'Sense data'; qn = '—'; qOrdre = 0; mk = 'sense-data'; mlabel = 'Sense data';
+      }
+      var A = anys[y] || (anys[y] = { count:0, total:0, trims:{} });
+      var Q = A.trims[qn] || (A.trims[qn] = { ordre:qOrdre, count:0, total:0, mesos:{} });
+      var M = Q.mesos[mk] || (Q.mesos[mk] = { label:mlabel, count:0, total:0, rows:[] });
+      M.rows.push(mapped); M.count++; M.total += mapped.amount;
+      Q.count++; Q.total += mapped.amount;
+      A.count++; A.total += mapped.amount;
+    });
+    return anys;
+  }
+
+  function chevron(obert) {
+    return '<span style="display:inline-block;width:14px;color:'+(obert?'#F5B800':'#8A867D')+';font-size:11px">'+(obert?'▾':'▸')+'</span>';
+  }
+  function resum(count, total) {
+    return '<span style="margin-left:auto;display:flex;align-items:center;gap:12px">' +
+      '<span style="font-size:11px;color:#8A867D">'+count+' '+(count===1?'factura':'factures')+'</span>' +
+      '<span style="font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:14px;color:#F5B800">'+B.fmt(total)+'</span></span>';
+  }
+
+  var COLS = 'minmax(190px,1.5fr) 92px 100px 86px 104px 104px 128px 40px';
+
+  function taulaMes(m) {
+    var header = '<div style="display:grid;grid-template-columns:'+COLS+';gap:10px;padding:10px 22px 10px 62px;border-bottom:1px solid rgba(242,240,233,.08);font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#8A867D">' +
+      '<span>Proveïdor</span><span>Tipus</span><span>Confiança IA</span><span>Emissió</span><span>Venciment</span><span style="text-align:right">Import</span><span style="text-align:right">Estat</span><span></span></div>';
+    var files = m.rows.map(function (r, i) {
+      var b = B.badge(r.estat);
+      return '<div class="row-hover" style="display:grid;grid-template-columns:'+COLS+';gap:10px;align-items:center;padding:11px 22px 11px 62px;border-bottom:1px solid rgba(242,240,233,.055)">' +
+        '<div style="display:flex;align-items:center;gap:10px;min-width:0">' +
+          '<span style="flex:none;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(245,184,0,.12);color:#F5B800;font-family:\'Barlow Condensed\',sans-serif;font-weight:700;font-size:12px;letter-spacing:.04em">'+B.esc(B.inicials(r.client))+'</span>' +
+          '<div style="display:flex;flex-direction:column;gap:1px;min-width:0">' +
+            '<span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+B.esc(r.client)+'</span>' +
+            '<span style="font-size:10.5px;color:#8A867D">#'+B.esc(r.num)+'</span></div></div>' +
+        '<span><span style="'+B.css(B.tipoChip)+'">'+B.esc(r.tipo)+'</span></span>' +
+        '<span><span style="'+B.css(B.confChip(r.conf))+'">'+r.conf+'%</span></span>' +
+        '<span style="font-size:12.5px;color:#B9B4A6">'+B.esc(r.issued||'—')+'</span>' +
+        '<span style="'+B.css(B.dueStyle(r))+'">'+B.esc(r.due||'—')+'</span>' +
+        '<span style="text-align:right;font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:15.5px">'+B.fmt(r.amount)+'</span>' +
+        '<span style="display:flex;justify-content:flex-end"><span style="'+B.css(b.s)+'">'+B.esc(b.label)+'</span></span>' +
+        '<button class="icon-btn" data-view="'+i+'" aria-label="Veure detall" style="width:30px;height:30px;display:flex;align-items:center;justify-content:center;border:none;border-radius:6px;background:transparent;color:#8A867D">' +
+          '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"></path><circle cx="12" cy="12" r="2.6"></circle></svg></button></div>';
+    }).join('');
+    return '<div style="overflow-x:auto;background:#0b0b0b"><div style="min-width:900px">'+header+files+'</div></div>';
+  }
+
+  function render() {
+    var el = document.getElementById('tree');
+    if (!state.loaded) { el.innerHTML = '<div style="padding:26px 22px;font-size:13px;color:#8A867D">Carregant…</div>'; return; }
+    if (state.rows.length === 0) { el.innerHTML = '<div style="padding:26px 22px;font-size:13px;color:#8A867D">Sense factures rebudes. Importa un PDF o sincronitza Gmail.</div>'; return; }
+
+    var anys = construirArbre();
+    var mesRowsMap = {}; // per enllaçar els botons de detall amb les seves files
+
+    var clausAny = Object.keys(anys).sort(function (a, b) {
+      if (a === 'Sense data') return 1; if (b === 'Sense data') return -1;
+      return Number(b) - Number(a);
+    });
+
+    var html = clausAny.map(function (y) {
+      var A = anys[y];
+      var idA = 'y:' + y;
+      var obertA = !!state.expanded[idA];
+      var capA = '<div class="node" data-toggle="'+idA+'" style="display:flex;align-items:center;gap:10px;padding:14px 20px;cursor:pointer;border-bottom:1px solid rgba(242,240,233,.07)">' +
+        chevron(obertA) +
+        '<span style="font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:17px;letter-spacing:.08em;text-transform:uppercase">'+B.esc(y)+'</span>' +
+        resum(A.count, A.total) + '</div>';
+      if (!obertA) return capA;
+
+      var clausQ = Object.keys(A.trims).sort(function (a, b) { return A.trims[b].ordre - A.trims[a].ordre; });
+      var cosA = clausQ.map(function (qn) {
+        var Q = A.trims[qn];
+        var idQ = 'q:' + y + ':' + qn;
+        var obertQ = !!state.expanded[idQ];
+        var capQ = '<div class="node" data-toggle="'+idQ+'" style="display:flex;align-items:center;gap:10px;padding:11px 20px 11px 40px;cursor:pointer;border-bottom:1px solid rgba(242,240,233,.06)">' +
+          chevron(obertQ) +
+          '<span style="font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:14px;letter-spacing:.08em;text-transform:uppercase;color:#B9B4A6">'+B.esc(qn)+'</span>' +
+          resum(Q.count, Q.total) + '</div>';
+        if (!obertQ) return capQ;
+
+        var clausM = Object.keys(Q.mesos).sort(function (a, b) { return a < b ? 1 : -1; });
+        var cosQ = clausM.map(function (mk) {
+          var M = Q.mesos[mk];
+          var idM = 'm:' + mk;
+          var obertM = !!state.expanded[idM];
+          mesRowsMap[mk] = M.rows;
+          var capM = '<div class="node" data-toggle="'+idM+'" style="display:flex;align-items:center;gap:10px;padding:10px 20px 10px 62px;cursor:pointer;border-bottom:1px solid rgba(242,240,233,.05)">' +
+            chevron(obertM) +
+            '<span style="font-size:13px;font-weight:600;color:#B9B4A6">'+B.esc(M.label)+'</span>' +
+            resum(M.count, M.total) + '</div>';
+          if (!obertM) return capM;
+          return capM + '<div data-mk="'+B.esc(mk)+'">' + taulaMes(M) + '</div>';
+        }).join('');
+        return capQ + cosQ;
+      }).join('');
+      return capA + cosA;
+    }).join('');
+
+    el.innerHTML = html;
+
+    // Toggles
+    Array.prototype.forEach.call(el.querySelectorAll('[data-toggle]'), function (n) {
+      n.onclick = function () {
+        var id = n.getAttribute('data-toggle');
+        if (state.expanded[id]) delete state.expanded[id]; else state.expanded[id] = true;
+        render();
+      };
+    });
+    // Botons de detall, dins de cada taula de mes
+    Array.prototype.forEach.call(el.querySelectorAll('[data-mk]'), function (cont) {
+      var rows = mesRowsMap[cont.getAttribute('data-mk')] || [];
+      Array.prototype.forEach.call(cont.querySelectorAll('[data-view]'), function (btn) {
+        btn.onclick = function () { state.detailRow = rows[parseInt(btn.getAttribute('data-view'),10)]; paintDetail(); };
+      });
+    });
+  }
+
+  function paintDetail() {
+    var root = document.getElementById('detailRoot');
+    var r = state.detailRow;
+    if (!r) { root.innerHTML=''; return; }
+    root.innerHTML = B.detailHTML(r, {
+      payBtn: r.estat!=='pagada' ? 'Marcar com a pagada' : null,
+      downloadBtn: true,
+      fields: [
+        { k:'Tipus', v:'Rebuda ↙ · '+r.tipo },
+        { k:'Concepte', v:r.concepte || '—' },
+        { k:'Emissió', v:r.issuedLlarg },
+        { k:'Venciment', v:r.dueLlarg },
+        { k:'Import', v:B.fmt(r.amount) },
+        { k:'Confiança IA', v:r.conf+'%' }
+      ]
+    });
+    document.getElementById('detailOverlay').onclick = function(){ state.detailRow=null; paintDetail(); };
+    document.getElementById('detailBox').onclick = function(e){ e.stopPropagation(); };
+    document.getElementById('detailClose').onclick = function(){ state.detailRow=null; paintDetail(); };
+    var dl = document.getElementById('detailDownload');
+    if (dl) dl.onclick = function(){ window.open('/api/factures/'+r.id+'/pdf', '_blank'); };
+    var pay = document.getElementById('detailPay');
+    if (pay) pay.onclick = function () {
+      B.api('/api/factures/'+r.id+'/estat', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({estat:'pagada'}) })
+        .then(function(){ state.detailRow=null; load(); })
+        .catch(function(e){ alert('No s\'ha pogut actualitzar: '+e.message); });
+    };
+  }
+
+  function load() {
+    state.loaded = false; render();
+    fetchAll().then(function (rows) {
+      state.rows = rows; state.loaded = true; render();
+    }).catch(function (e) {
+      document.getElementById('tree').innerHTML = '<div style="padding:26px 22px;font-size:13px;color:#D97B66">Error: '+B.esc(e.message)+'</div>';
+    });
+  }
+
+  function importar(file) {
+    var fd = new FormData(); fd.append('file', file);
+    document.getElementById('syncText').textContent = 'Processant '+file.name+'…';
+    B.api('/api/factures/import', { method:'POST', body:fd })
+      .then(function(){
+        // Els imports ja no entren directament a factures: passen per la safata.
+        document.getElementById('syncText').textContent='Enviat a la safata de revisió';
+        B.refrescarBadgePendents();
+      })
+      .catch(function(e){ alert('No s\'ha pogut importar: '+e.message); document.getElementById('syncText').textContent='Connectat · SQLite local'; });
+  }
+
+  document.getElementById('btnImport').onclick = function(){ document.getElementById('fileInput').click(); };
+  document.getElementById('fileInput').onchange = function(e){ if(e.target.files&&e.target.files[0]) importar(e.target.files[0]); e.target.value=''; };
+
+  load();
+})();
+</script>
+</body>
+</html>

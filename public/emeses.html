@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Factures emeses · Brulée</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@400;500;600;700&family=Rubik+Spray+Paint&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#080808;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased;color:#F2F0E9}
+  a{color:#F5B800;text-decoration:none}
+  input::placeholder{color:#6b675e}
+  input:focus,select:focus,textarea:focus{outline:1.5px solid rgba(245,184,0,.55);outline-offset:0}
+  button{font-family:inherit;cursor:pointer}
+  select{appearance:none;-webkit-appearance:none}
+  .row-hover:hover{background:#131313}
+  .icon-btn:hover{background:rgba(242,240,233,.07)!important;color:#F2F0E9!important}
+  aside a:hover{color:#F2F0E9}
+</style>
+</head>
+<body>
+<div style="display:grid;grid-template-columns:232px 1fr;min-height:100vh">
+  <div id="sidebar"></div>
+  <main style="min-width:0;padding:24px 30px 40px;display:flex;flex-direction:column;gap:16px">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="position:relative">
+        <h1 style="margin:0;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:32px;letter-spacing:.1em;text-transform:uppercase;line-height:1">Factures emeses</h1>
+        <svg width="110" height="8" viewBox="0 0 110 8" preserveAspectRatio="none" style="display:block;margin-top:6px"><path d="M2 4.5 C30 2.5 72 5.5 108 3.5" stroke="#F5B800" stroke-width="2.6" fill="none" stroke-dasharray="64 0 20 2.5 11 3 5"></path></svg>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:#8A867D"><span style="width:7px;height:7px;border-radius:50%;background:#9DBF8E;box-shadow:0 0 6px rgba(157,191,142,.6)"></span><span id="statusText">Connectat · SQLite local</span></span>
+        <button id="btnNova" style="display:flex;align-items:center;gap:8px;padding:11px 20px;border:none;border-radius:4px 9px 5px 10px;background:#F5B800;color:#080808;font-family:'Barlow Condensed',sans-serif;font-weight:700;font-size:14.5px;letter-spacing:.12em;text-transform:uppercase">Afegir Factura <span style="font-size:17px;line-height:0">+</span></button>
+      </div>
+    </div>
+
+    <div style="border:1px solid rgba(242,240,233,.09);border-radius:8px;background:#0f0f0f;overflow:hidden">
+      <div style="display:flex;align-items:center;gap:10px;padding:14px 22px;border-bottom:1px solid rgba(242,240,233,.08);flex-wrap:wrap">
+        <input id="search" placeholder="Cercar per client…" style="flex:1;min-width:180px;padding:11px 13px;border-radius:5px;border:1px solid rgba(242,240,233,.13);background:#0b0b0b;color:#F2F0E9;font-size:13px;font-family:'Archivo',sans-serif">
+        <select id="estadoF" style="padding:11px 32px 11px 12px;border-radius:5px;border:1px solid rgba(242,240,233,.13);background:#0b0b0b url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%226%22><path d=%22M1 1l4 4 4-4%22 stroke=%22%238A867D%22 fill=%22none%22 stroke-width=%221.5%22/></svg>') no-repeat right 12px center;color:#F2F0E9;font-size:12.5px;font-family:'Archivo',sans-serif">
+          <option value="todos">Tots els estats</option>
+          <option value="pendent">Pendent</option>
+          <option value="pagada">Pagada</option>
+          <option value="cancel_lada">Cancel·lada</option>
+        </select>
+        <select id="mesF" style="padding:11px 32px 11px 12px;border-radius:5px;border:1px solid rgba(242,240,233,.13);background:#0b0b0b url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2210%22 height=%226%22><path d=%22M1 1l4 4 4-4%22 stroke=%22%238A867D%22 fill=%22none%22 stroke-width=%221.5%22/></svg>') no-repeat right 12px center;color:#F2F0E9;font-size:12.5px;font-family:'Archivo',sans-serif">
+          <option value="todos">Tots els mesos</option>
+        </select>
+      </div>
+      <div style="overflow-x:auto"><div style="min-width:860px">
+      <div style="display:grid;grid-template-columns:minmax(190px,1.5fr) 92px 100px 86px 104px 104px 128px 40px;gap:10px;padding:10px 22px;border-bottom:1px solid rgba(242,240,233,.08);font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#8A867D">
+        <span>Client</span><span>Tipus</span><span>Confiança IA</span><span>Emissió</span><span>Venciment</span><span style="text-align:right">Import</span><span style="text-align:right">Estat</span><span></span>
+      </div>
+      <div id="rows"></div>
+      </div></div>
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:13px 22px;flex-wrap:wrap">
+        <span id="pagerInfo" style="font-size:12px;color:#8A867D"></span>
+        <div id="pages" style="display:flex;gap:5px"></div>
+      </div>
+    </div>
+  </main>
+</div>
+<div id="detailRoot"></div>
+<div id="modalRoot"></div>
+
+<script src="/common.js"></script>
+<script>
+(function () {
+  "use strict";
+  var B = window.Brulee;
+  var state = { query:'', estadoF:'todos', mesF:'todos', page:1, detailRow:null, modalOpen:false, rows:[], list:{dades:[],total:0,pages:1},
+    form:{ clientNom:'', clientNif:'', dataDocument:'', concepte:'', baseImposable:'', iva:'', estat:'pendent' } };
+
+  document.getElementById('sidebar').innerHTML = B.sidebarHTML('emeses');
+  B.omplirMesos(document.getElementById('mesF'));
+
+  function mapEmesa(f) {
+    return { id:f.id, type:'emitida', num:f.numero||('#'+f.id), client:f.clientNom||'Sense client', tipo:'Factura', conf:100,
+      issued:B.fmtDataCurta(f.dataDocument), issuedLlarg:B.fmtDataLlarga(f.dataDocument),
+      due:B.fmtDataCurta(f.dataVenciment), dueLlarg:B.fmtDataLlarga(f.dataVenciment), dueDays:B.diesFins(f.dataVenciment),
+      amount:f.total!=null?f.total:0, estat:f.estat, concepte:f.concepte, clientNif:f.clientNif };
+  }
+
+  function params() {
+    var p = new URLSearchParams();
+    if (state.estadoF!=='todos') p.set('estat', state.estadoF);
+    if (state.mesF!=='todos') p.set('mes', state.mesF);
+    if (state.query.trim()) p.set('clientNom', state.query.trim());
+    p.set('page', state.page); p.set('limit', 12);
+    return p;
+  }
+
+  function refresh() {
+    document.getElementById('rows').innerHTML = '<div style="padding:26px 22px;font-size:13px;color:#8A867D">Carregant…</div>';
+    B.api('/api/factures-emeses?'+params().toString()).then(function (list) {
+      state.list = list; state.rows = list.dades.map(mapEmesa); paint();
+    }).catch(function (e) {
+      document.getElementById('rows').innerHTML = '<div style="padding:26px 22px;font-size:13px;color:#D97B66">Error: '+B.esc(e.message)+'</div>';
+    });
+  }
+
+  function paint() {
+    document.getElementById('rows').innerHTML = B.tableRowsHTML(state.rows, { emptyMsg:'Encara no hi ha factures emeses. Crea\'n una amb «Afegir Factura».' });
+    Array.prototype.forEach.call(document.querySelectorAll('[data-view]'), function (btn) {
+      btn.onclick = function(){ state.detailRow = state.rows[parseInt(btn.getAttribute('data-view'),10)]; paintDetail(); };
+    });
+    document.getElementById('pagerInfo').textContent = state.rows.length+' de '+state.list.total+' factures';
+    document.getElementById('pages').innerHTML = B.pagerHTML(state.page, Math.max(1,state.list.pages));
+    Array.prototype.forEach.call(document.querySelectorAll('[data-page]'), function (btn) {
+      btn.onclick = function(){ state.page=parseInt(btn.getAttribute('data-page'),10); refresh(); };
+    });
+  }
+
+  function paintDetail() {
+    var root = document.getElementById('detailRoot');
+    var r = state.detailRow;
+    if (!r) { root.innerHTML=''; return; }
+    root.innerHTML = B.detailHTML(r, {
+      payBtn: (r.estat==='pendent') ? 'Marcar com a pagada' : null,
+      fields: [
+        { k:'Tipus', v:'Emesa ↗ · '+r.tipo },
+        { k:'Client', v:r.client + (r.clientNif ? ' · '+r.clientNif : '') },
+        { k:'Concepte', v:r.concepte || '—' },
+        { k:'Emissió', v:r.issuedLlarg },
+        { k:'Venciment', v:r.dueLlarg },
+        { k:'Import', v:B.fmt(r.amount) }
+      ]
+    });
+    document.getElementById('detailOverlay').onclick = function(){ state.detailRow=null; paintDetail(); };
+    document.getElementById('detailBox').onclick = function(e){ e.stopPropagation(); };
+    document.getElementById('detailClose').onclick = function(){ state.detailRow=null; paintDetail(); };
+    var pay = document.getElementById('detailPay');
+    if (pay) pay.onclick = function () {
+      B.api('/api/factures-emeses/'+r.id+'/estat', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({estat:'pagada'}) })
+        .then(function(){ state.detailRow=null; refresh(); })
+        .catch(function(e){ alert('No s\'ha pogut actualitzar: '+e.message); });
+    };
+  }
+
+  function num(v){ var n = parseFloat(String(v).replace(/\./g,'').replace(',', '.')); return isNaN(n)?null:n; }
+
+  function paintModal() {
+    var root = document.getElementById('modalRoot');
+    if (!state.modalOpen) { root.innerHTML=''; return; }
+    var f = state.form;
+    var inputStyle = 'padding:11px 12px;border-radius:5px;border:1px solid rgba(242,240,233,.13);background:#0b0b0b;color:#F2F0E9;font-size:13px;font-family:\'Archivo\',sans-serif;letter-spacing:0;text-transform:none;font-weight:400;width:100%';
+    var selStyle = inputStyle + ';appearance:none;-webkit-appearance:none';
+    var labelStyle = 'display:flex;flex-direction:column;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:#8A867D';
+    root.innerHTML =
+      '<div id="modalOverlay" style="position:fixed;inset:0;z-index:40;background:rgba(0,0,0,.62);backdrop-filter:blur(3px);display:flex;align-items:center;justify-content:center;padding:24px">' +
+        '<div id="modalBox" style="width:460px;max-width:100%;background:#0f0f0f;border:1px solid rgba(242,240,233,.14);border-radius:10px;padding:24px;display:flex;flex-direction:column;gap:12px;box-shadow:0 30px 70px rgba(0,0,0,.6)">' +
+          '<div style="display:flex;align-items:center;justify-content:space-between">' +
+            '<span style="font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:19px;letter-spacing:.1em;text-transform:uppercase">Afegir factura</span>' +
+            '<button id="modalX" style="background:none;border:none;color:#8A867D;font-size:18px;padding:2px 6px">✕</button>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+            '<label style="'+labelStyle+'">Client<input id="f_client" value="'+B.esc(f.clientNom)+'" placeholder="Nom del client" style="'+inputStyle+'"></label>' +
+            '<label style="'+labelStyle+'">NIF<input id="f_nif" value="'+B.esc(f.clientNif)+'" placeholder="A-700123" style="'+inputStyle+'"></label>' +
+          '</div>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+            '<label style="'+labelStyle+'">Data<input id="f_data" type="date" value="'+B.esc(f.dataDocument)+'" style="'+inputStyle+'"></label>' +
+            '<label style="'+labelStyle+'">Estat<select id="f_estat" style="'+selStyle+'">' +
+              ['pendent','pagada','cancel_lada'].map(function(e){ return '<option value="'+e+'"'+(f.estat===e?' selected':'')+'>'+B.esc(B.ESTAT_LABEL[e])+'</option>'; }).join('') +
+            '</select></label>' +
+          '</div>' +
+          '<label style="'+labelStyle+'">Concepte<input id="f_concepte" value="'+B.esc(f.concepte)+'" placeholder="Descripció" style="'+inputStyle+'"></label>' +
+          '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">' +
+            '<label style="'+labelStyle+'">Base imposable (€)<input id="f_base" value="'+B.esc(f.baseImposable)+'" placeholder="0,00" inputmode="decimal" style="'+inputStyle+'"></label>' +
+            '<label style="'+labelStyle+'">IVA / IGI (€)<input id="f_iva" value="'+B.esc(f.iva)+'" placeholder="0,00" inputmode="decimal" style="'+inputStyle+'"></label>' +
+          '</div>' +
+          '<div style="display:flex;justify-content:space-between;align-items:baseline;padding:4px 2px 0;font-size:11px;color:#8A867D">Total<span id="f_total" style="font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:16px;color:#F5B800">'+B.fmt((num(f.baseImposable)||0)+(num(f.iva)||0))+'</span></div>' +
+          '<button id="save" style="margin-top:4px;padding:12px;border:none;border-radius:4px 9px 5px 10px;background:#F5B800;color:#080808;font-family:\'Barlow Condensed\',sans-serif;font-weight:700;font-size:15px;letter-spacing:.12em;text-transform:uppercase">Emetre factura</button>' +
+          '<span id="modalErr" style="font-size:11px;color:#D97B66;text-align:center;min-height:14px"></span>' +
+        '</div>' +
+      '</div>';
+    document.getElementById('modalOverlay').onclick = function(){ state.modalOpen=false; paintModal(); };
+    document.getElementById('modalBox').onclick = function(e){ e.stopPropagation(); };
+    document.getElementById('modalX').onclick = function(){ state.modalOpen=false; paintModal(); };
+    function bind(id, key, recalc){ document.getElementById(id).oninput = function(e){ state.form[key]=e.target.value; if(recalc){ document.getElementById('f_total').textContent = B.fmt((num(state.form.baseImposable)||0)+(num(state.form.iva)||0)); } }; }
+    bind('f_client','clientNom'); bind('f_nif','clientNif'); bind('f_concepte','concepte');
+    bind('f_base','baseImposable', true); bind('f_iva','iva', true);
+    document.getElementById('f_data').oninput = function(e){ state.form.dataDocument=e.target.value; };
+    document.getElementById('f_estat').onchange = function(e){ state.form.estat=e.target.value; };
+    document.getElementById('save').onclick = desar;
+  }
+
+  function desar() {
+    var f = state.form;
+    var base = num(f.baseImposable);
+    var iva = num(f.iva);
+    var total = (base||0) + (iva||0);
+    var any = (f.dataDocument && f.dataDocument.slice(0,4)) || String(new Date().getFullYear());
+    var numero = 'F-' + any + '-' + String(Date.now()).slice(-6);
+    var payload = { numero:numero, clientNom:f.clientNom||null, clientNif:f.clientNif||null,
+      dataDocument:f.dataDocument||null, baseImposable:base, iva:iva, total:total, concepte:f.concepte||null };
+
+    B.api('/api/factures-emeses', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload) })
+      .then(function (creada) {
+        // El backend crea sempre en 'pendent'; si l'usuari n'ha triat un altre, l'actualitzem.
+        if (f.estat && f.estat !== 'pendent') {
+          return B.api('/api/factures-emeses/'+creada.id+'/estat', { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({estat:f.estat}) });
+        }
+      })
+      .then(function () {
+        state.modalOpen=false;
+        state.form={ clientNom:'', clientNif:'', dataDocument:'', concepte:'', baseImposable:'', iva:'', estat:'pendent' };
+        state.page=1; paintModal(); refresh();
+        document.getElementById('statusText').textContent='Factura emesa creada';
+      })
+      .catch(function (e) { document.getElementById('modalErr').textContent = e.message; });
+  }
+
+  document.getElementById('btnNova').onclick = function(){ state.modalOpen=true; paintModal(); };
+  document.getElementById('search').oninput = function(e){ state.query=e.target.value; state.page=1; refresh(); };
+  document.getElementById('estadoF').onchange = function(e){ state.estadoF=e.target.value; state.page=1; refresh(); };
+  document.getElementById('mesF').onchange = function(e){ state.mesF=e.target.value; state.page=1; refresh(); };
+
+  refresh();
+})();
+</script>
+</body>
+</html>

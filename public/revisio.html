@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Safata de revisió · Brulée</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@400;500;600;700&family=Rubik+Spray+Paint&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#080808;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased;color:#F2F0E9}
+  a{color:#F5B800;text-decoration:none}
+  button{font-family:inherit;cursor:pointer}
+  button[disabled]{opacity:.45;cursor:default}
+  .row-hover:hover{background:#131313}
+  .btn-ok:hover:not([disabled]){filter:brightness(1.08)}
+  .btn-no:hover:not([disabled]){background:rgba(217,123,102,.12)!important;color:#F2F0E9!important}
+  aside a:hover{color:#F2F0E9}
+</style>
+</head>
+<body>
+<div style="display:grid;grid-template-columns:232px 1fr;min-height:100vh">
+  <div id="sidebar"></div>
+  <main style="min-width:0;padding:24px 30px 40px;display:flex;flex-direction:column;gap:16px">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="position:relative">
+        <h1 style="margin:0;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:32px;letter-spacing:.1em;text-transform:uppercase;line-height:1">Safata de revisió</h1>
+        <svg width="140" height="8" viewBox="0 0 140 8" preserveAspectRatio="none" style="display:block;margin-top:6px"><path d="M2 4.5 C38 2.5 92 5.5 138 3.5" stroke="#F5B800" stroke-width="2.6" fill="none" stroke-dasharray="64 0 20 2.5 11 3 5"></path></svg>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:#8A867D">
+          <span style="width:7px;height:7px;border-radius:50%;background:#9DBF8E;box-shadow:0 0 6px rgba(157,191,142,.6)"></span>
+          <span id="syncText">Connectat · Supabase</span>
+        </span>
+        <button id="btnRefresh" style="display:flex;align-items:center;gap:8px;padding:10px 18px;border:1px solid rgba(242,240,233,.16);border-radius:5px;background:transparent;color:#B9B4A6;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:14px;letter-spacing:.12em;text-transform:uppercase">Actualitzar</button>
+      </div>
+    </div>
+
+    <p style="margin:0;max-width:720px;font-size:12.5px;line-height:1.6;color:#8A867D">
+      Cada adjunt que arriba per Gmail o per importació manual aterra aquí abans de comptar com a despesa.
+      <strong style="color:#B9B4A6;font-weight:600">Confirmar</strong> el passa a les factures rebudes;
+      <strong style="color:#B9B4A6;font-weight:600">Descartar</strong> l'elimina de la safata.
+    </p>
+
+    <div style="border:1px solid rgba(242,240,233,.09);border-radius:8px;background:#0f0f0f;overflow:hidden">
+      <div id="taula"></div>
+    </div>
+  </main>
+</div>
+
+<script src="/common.js"></script>
+<script>
+(function () {
+  "use strict";
+  var B = window.Brulee;
+  var COLS = 'minmax(210px,1.7fr) 96px minmax(150px,1.1fr) 96px 118px 196px';
+  var state = { rows: [], loaded: false, ocupat: {} };
+
+  document.getElementById('sidebar').innerHTML = B.sidebarHTML('revisio');
+
+  function missatge(text, color) {
+    document.getElementById('taula').innerHTML =
+      '<div style="padding:26px 22px;font-size:13px;color:' + (color || '#8A867D') + '">' + B.esc(text) + '</div>';
+  }
+
+  function capcalera() {
+    return '<div style="display:grid;grid-template-columns:' + COLS + ';gap:10px;padding:10px 22px;border-bottom:1px solid rgba(242,240,233,.08);font-size:10px;font-weight:700;letter-spacing:.18em;text-transform:uppercase;color:#8A867D">' +
+      '<span>Proveïdor</span><span>Categoria</span><span>Concepte</span><span>Data</span>' +
+      '<span style="text-align:right">Import</span><span style="text-align:right">Acció</span></div>';
+  }
+
+  /** Línia de context: qui ho ha enviat i amb quin assumpte. */
+  function origen(p) {
+    if (!p.remitent && !p.assumpte) return 'Importació manual';
+    var qui = String(p.remitent || '').replace(/^.*</, '').replace(/>.*$/, '') || p.remitent || '';
+    return (qui ? qui + ' · ' : '') + (p.assumpte || 'sense assumpte');
+  }
+
+  function fila(p) {
+    var ocupat = !!state.ocupat[p.id];
+    var categoria = B.TIPUS_LABEL[p.categoria] || p.categoria || 'Desconegut';
+    return '<div class="row-hover" style="display:grid;grid-template-columns:' + COLS + ';gap:10px;align-items:center;padding:12px 22px;border-bottom:1px solid rgba(242,240,233,.055)">' +
+      '<div style="display:flex;align-items:center;gap:10px;min-width:0">' +
+        '<span style="flex:none;width:30px;height:30px;display:flex;align-items:center;justify-content:center;border-radius:6px;background:rgba(245,184,0,.12);color:#F5B800;font-family:\'Barlow Condensed\',sans-serif;font-weight:700;font-size:12px;letter-spacing:.04em">' + B.esc(B.inicials(p.proveidor)) + '</span>' +
+        '<div style="display:flex;flex-direction:column;gap:2px;min-width:0">' +
+          '<span style="font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + B.esc(p.proveidor || 'Sense nom') + '</span>' +
+          '<span title="' + B.esc(origen(p)) + '" style="font-size:10.5px;color:#8A867D;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + B.esc(origen(p)) + '</span>' +
+        '</div></div>' +
+      '<span><span style="' + B.css(B.tipoChip) + '">' + B.esc(categoria) + '</span></span>' +
+      '<span title="' + B.esc(p.concepte || '') + '" style="font-size:12.5px;color:#B9B4A6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + B.esc(p.concepte || '—') + '</span>' +
+      '<span style="font-size:12.5px;color:#B9B4A6">' + B.esc(B.fmtDataCurta(p.data) || '—') + '</span>' +
+      '<span style="text-align:right;font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:15.5px">' + B.fmt(p.import) + '</span>' +
+      '<span style="display:flex;justify-content:flex-end;gap:7px">' +
+        '<button class="btn-ok" data-ok="' + p.id + '"' + (ocupat ? ' disabled' : '') + ' style="padding:8px 14px;border:none;border-radius:4px 9px 5px 10px;background:#F5B800;color:#080808;font-family:\'Barlow Condensed\',sans-serif;font-weight:700;font-size:12.5px;letter-spacing:.1em;text-transform:uppercase">Confirmar</button>' +
+        '<button class="btn-no" data-no="' + p.id + '"' + (ocupat ? ' disabled' : '') + ' style="padding:8px 14px;border:1px solid rgba(217,123,102,.45);border-radius:5px;background:transparent;color:#D97B66;font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:12.5px;letter-spacing:.1em;text-transform:uppercase">Descartar</button>' +
+      '</span></div>';
+  }
+
+  function peu() {
+    var total = state.rows.reduce(function (s, p) { return s + (Number(p.import) || 0); }, 0);
+    return '<div style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 22px;background:#0b0b0b">' +
+      '<span style="font-size:11px;color:#8A867D">' + state.rows.length + ' ' + (state.rows.length === 1 ? 'despesa pendent' : 'despeses pendents') + '</span>' +
+      '<span style="font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:15px;color:#F5B800">' + B.fmt(total) + '</span></div>';
+  }
+
+  function render() {
+    if (!state.loaded) return missatge('Carregant…');
+    if (!state.rows.length) return missatge('Safata buida. Tot revisat. 🥐');
+
+    var el = document.getElementById('taula');
+    el.innerHTML = '<div style="overflow-x:auto"><div style="min-width:920px">' +
+      capcalera() + state.rows.map(fila).join('') + peu() + '</div></div>';
+
+    Array.prototype.forEach.call(el.querySelectorAll('[data-ok]'), function (btn) {
+      btn.onclick = function () { accio(btn.getAttribute('data-ok'), 'confirmar'); };
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('[data-no]'), function (btn) {
+      btn.onclick = function () { accio(btn.getAttribute('data-no'), 'descartar'); };
+    });
+  }
+
+  function accio(id, quina) {
+    if (quina === 'descartar' && !confirm('Descartar aquesta despesa? No es podrà recuperar.')) return;
+
+    state.ocupat[id] = true; render();
+    document.getElementById('syncText').textContent = quina === 'confirmar' ? 'Confirmant…' : 'Descartant…';
+
+    var req = quina === 'confirmar'
+      ? B.api('/api/pendents/' + id + '/confirmar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      : B.api('/api/pendents/' + id, { method: 'DELETE' });
+
+    req.then(function () {
+      document.getElementById('syncText').textContent =
+        quina === 'confirmar' ? 'Confirmada · ja és a Factures rebudes' : 'Descartada';
+      delete state.ocupat[id];
+      load();
+    }).catch(function (e) {
+      delete state.ocupat[id]; render();
+      document.getElementById('syncText').textContent = 'Connectat · Supabase';
+      alert('No s\'ha pogut ' + quina + ': ' + e.message);
+    });
+  }
+
+  function load() {
+    state.loaded = false; render();
+    B.api('/api/pendents').then(function (res) {
+      state.rows = res.dades || [];
+      state.loaded = true;
+      render();
+      B.refrescarBadgePendents();
+    }).catch(function (e) {
+      missatge('Error: ' + e.message, '#D97B66');
+    });
+  }
+
+  document.getElementById('btnRefresh').onclick = load;
+  load();
+})();
+</script>
+</body>
+</html>

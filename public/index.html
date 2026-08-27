@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panell · Brulée</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Archivo:wght@400;500;600;700&family=Rubik+Spray+Paint&display=swap" rel="stylesheet">
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#080808;font-family:'Archivo',sans-serif;-webkit-font-smoothing:antialiased;color:#F2F0E9}
+  a{color:#F5B800;text-decoration:none}
+  a:hover{color:#ffc93f}
+  button{font-family:inherit;cursor:pointer}
+  aside a:hover{color:#F2F0E9}
+</style>
+</head>
+<body>
+<div style="display:grid;grid-template-columns:232px 1fr;min-height:100vh">
+  <div id="sidebar"></div>
+  <main style="min-width:0;padding:24px 30px 40px;display:flex;flex-direction:column;gap:16px">
+
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+      <div style="position:relative">
+        <h1 style="margin:0;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:32px;letter-spacing:.1em;text-transform:uppercase;line-height:1">Panell general</h1>
+        <svg width="110" height="8" viewBox="0 0 110 8" preserveAspectRatio="none" style="display:block;margin-top:6px"><path d="M2 4.5 C30 2.5 72 5.5 108 3.5" stroke="#F5B800" stroke-width="2.6" fill="none" stroke-dasharray="64 0 20 2.5 11 3 5"></path></svg>
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="display:flex;align-items:center;gap:7px;font-size:12px;color:#8A867D"><span style="width:7px;height:7px;border-radius:50%;background:#9DBF8E;box-shadow:0 0 6px rgba(157,191,142,.6)"></span><span id="syncText">Connectat · SQLite local</span></span>
+        <button id="btnSync" style="display:flex;align-items:center;gap:7px;padding:10px 16px;border:1px solid rgba(242,240,233,.16);border-radius:5px;background:transparent;color:#F2F0E9;font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:13.5px;letter-spacing:.1em;text-transform:uppercase">↻ Sincronitzar</button>
+      </div>
+    </div>
+
+    <div id="kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px"></div>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px;align-items:stretch">
+      <div style="padding:20px 22px 16px;border:1px solid rgba(242,240,233,.09);border-radius:8px;background:#0f0f0f;display:flex;flex-direction:column;gap:14px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px">
+          <div style="display:flex;flex-direction:column;gap:2px">
+            <span style="font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:16px;letter-spacing:.12em;text-transform:uppercase">Despesa mensual</span>
+            <span id="chartSub" style="font-size:11px;color:#8A867D">Factures rebudes vs emeses</span>
+          </div>
+          <span id="chartYear" style="padding:6px 12px;border:1px solid rgba(242,240,233,.13);border-radius:5px;font-size:12px;color:#B9B4A6"></span>
+        </div>
+        <div style="display:grid;grid-template-columns:30px 1fr;gap:8px">
+          <div id="chartYAxis" style="display:flex;flex-direction:column;justify-content:space-between;height:150px;text-align:right;font-size:9.5px;color:#5d5a52;padding-bottom:1px"></div>
+          <div style="position:relative;height:150px;border-left:1px solid rgba(242,240,233,.1);border-bottom:1px solid rgba(242,240,233,.14);background:repeating-linear-gradient(to top,transparent 0 36.5px,rgba(242,240,233,.05) 36.5px 37.5px)">
+            <div id="chartBars" style="position:absolute;inset:0;display:grid;grid-template-columns:repeat(6,1fr);gap:10px;align-items:end;padding:0 6px"></div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:30px 1fr;gap:8px">
+          <span></span>
+          <div id="chartLabels" style="display:grid;grid-template-columns:repeat(6,1fr);gap:10px;padding:0 6px"></div>
+        </div>
+        <div style="display:flex;gap:16px;font-size:11px;color:#8A867D">
+          <span style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;background:#F5B800;border-radius:2px"></span>Factures emeses</span>
+          <span style="display:flex;align-items:center;gap:6px"><span style="width:9px;height:9px;background:#3d3a33;border-radius:2px"></span>Factures rebudes</span>
+        </div>
+      </div>
+
+      <div style="padding:20px 20px 14px;border:1px solid rgba(242,240,233,.09);border-radius:8px;background:#0f0f0f;display:flex;flex-direction:column;gap:2px">
+        <span style="font-family:'Barlow Condensed',sans-serif;font-weight:600;font-size:16px;letter-spacing:.12em;text-transform:uppercase">Top proveïdors</span>
+        <span style="font-size:11px;color:#8A867D;margin-bottom:10px">Per import acumulat</span>
+        <div id="provs"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<script src="/common.js"></script>
+<script>
+(function () {
+  "use strict";
+  var B = window.Brulee;
+  var ANY_ACTUAL = new Date().getFullYear();
+
+  document.getElementById('sidebar').innerHTML = B.sidebarHTML('panell');
+
+  function renderKPIs(r0) {
+    r0 = r0 || { totalPendent:0, vencen7dies:0, facturesMes:0, pagadaMes:0 };
+    function cardBase(accent){ return { minWidth:0, display:'flex', flexDirection:'column', gap:'8px', padding:'16px 18px', border:'1px solid rgba(242,240,233,.09)', borderLeft:'3px solid '+accent, borderRadius:'8px', background:'#0f0f0f', alignItems:'flex-start' }; }
+    var valueBase = { fontFamily:"'Barlow Condensed',sans-serif", fontWeight:600, fontSize:'27px', lineHeight:1 };
+    var tagBase = { fontSize:'10px', fontWeight:700, letterSpacing:'.06em', padding:'3px 8px', borderRadius:'3px', whiteSpace:'nowrap' };
+    var kpis = [
+      { label:'Total pendent', value:B.fmt(r0.totalPendent), tag:'pendent de pagament', cardStyle:cardBase('#F5B800'), valueStyle:Object.assign({},valueBase,{color:'#F5B800'}), tagStyle:Object.assign({},tagBase,{color:'#9DBF8E',background:'rgba(157,191,142,.1)'}) },
+      { label:'Vencen en 7 dies', value:B.fmt(r0.vencen7dies), tag:'pròxims 7 dies', cardStyle:cardBase('#D97B66'), valueStyle:valueBase, tagStyle:Object.assign({},tagBase,{color:'#D97B66',background:'rgba(217,123,102,.1)'}) },
+      { label:'Factures del mes', value:String(r0.facturesMes), tag:B.MESOS_CA[new Date().getMonth()]+' '+ANY_ACTUAL, cardStyle:cardBase('rgba(242,240,233,.25)'), valueStyle:valueBase, tagStyle:Object.assign({},tagBase,{color:'#8A867D',background:'rgba(242,240,233,.07)'}) },
+      { label:'Pagat aquest mes', value:B.fmt(r0.pagadaMes), tag:'aquest mes', cardStyle:cardBase('#9DBF8E'), valueStyle:valueBase, tagStyle:Object.assign({},tagBase,{color:'#9DBF8E',background:'rgba(157,191,142,.1)'}) }
+    ];
+    document.getElementById('kpis').innerHTML = kpis.map(function (kp) {
+      return '<div style="'+B.css(kp.cardStyle)+'">' +
+        '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;font-weight:600;letter-spacing:.18em;text-transform:uppercase;color:#8A867D">'+B.esc(kp.label)+'</span>' +
+        '<div style="'+B.css(kp.valueStyle)+'">'+B.esc(kp.value)+'</div>' +
+        '<span style="'+B.css(kp.tagStyle)+'">'+B.esc(kp.tag)+'</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  function renderChart(mensual) {
+    document.getElementById('chartSub').textContent = 'Factures rebudes vs emeses · ' + ANY_ACTUAL;
+    document.getElementById('chartYear').textContent = ANY_ACTUAL + ' ▾';
+    var mesActual = new Date().getMonth() + 1;
+    var finestra = [];
+    for (var mi = mesActual - 6; mi < mesActual; mi++) {
+      var idx = ((mi % 12) + 12) % 12;
+      var reg = mensual[idx] || { rebudes:0, emeses:0 };
+      finestra.push({ idx:idx, rebudes:reg.rebudes||0, emeses:reg.emeses||0 });
+    }
+    finestra = finestra.slice(-6);
+    var maxData = finestra.reduce(function(m,x){ return Math.max(m, x.rebudes, x.emeses); }, 0);
+    var maxV = Math.max(1000, Math.ceil(maxData/1000)*1000);
+    function kfmt(v){ return v>=1000 ? (Math.round(v/100)/10)+'k' : String(Math.round(v)); }
+    document.getElementById('chartYAxis').innerHTML = [1,0.75,0.5,0.25,0].map(function(f){
+      return '<span>'+(f===0?'0':kfmt(maxV*f))+'</span>';
+    }).join('');
+    document.getElementById('chartBars').innerHTML = finestra.map(function (m) {
+      var barE = { width:'15px', height:Math.round(m.emeses/maxV*100)+'%', background:'#F5B800', borderRadius:'3px 3px 0 0' };
+      var barR = { width:'15px', height:Math.round(m.rebudes/maxV*100)+'%', background:'#3d3a33', borderRadius:'3px 3px 0 0' };
+      return '<div style="display:flex;align-items:flex-end;justify-content:center;gap:5px;height:150px">' +
+        '<div style="'+B.css(barE)+'" title="Emeses: '+B.fmt(m.emeses)+'"></div>' +
+        '<div style="'+B.css(barR)+'" title="Rebudes: '+B.fmt(m.rebudes)+'"></div>' +
+      '</div>';
+    }).join('');
+    document.getElementById('chartLabels').innerHTML = finestra.map(function (m) {
+      return '<div style="text-align:center;font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:#8A867D">'+B.esc(B.MESOS_CURT[m.idx])+'</div>';
+    }).join('');
+  }
+
+  function renderProvs(provs) {
+    var el = document.getElementById('provs');
+    if (!provs.length) { el.innerHTML = '<div style="padding:14px 0;font-size:12px;color:#8A867D">Encara no hi ha dades de proveïdors.</div>'; return; }
+    el.innerHTML = provs.map(function (p) {
+      var barStyle = { width:p.percentatge+'%', height:'100%', background:'#F5B800', borderRadius:'2px' };
+      return '<div style="display:flex;flex-direction:column;gap:6px;padding:9px 0;border-bottom:1px solid rgba(242,240,233,.07)">' +
+        '<div style="display:flex;align-items:baseline;justify-content:space-between;gap:10px">' +
+          '<span style="font-size:12.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+B.esc(p.nom)+'</span>' +
+          '<span style="font-family:\'Barlow Condensed\',sans-serif;font-weight:600;font-size:14.5px;white-space:nowrap">'+B.fmt(p.total)+'</span>' +
+        '</div>' +
+        '<div style="height:4px;border-radius:2px;background:rgba(242,240,233,.07);overflow:hidden"><div style="'+B.css(barStyle)+'"></div></div>' +
+        '<span style="font-size:10.5px;color:#8A867D">'+p.percentatge+'% del total</span>' +
+      '</div>';
+    }).join('');
+  }
+
+  function refresh() {
+    Promise.all([
+      B.api('/api/stats/resum').catch(function(){ return null; }),
+      B.api('/api/stats/mensual').catch(function(){ return []; }),
+      B.api('/api/stats/proveidors').catch(function(){ return []; })
+    ]).then(function (res) {
+      renderKPIs(res[0]);
+      renderChart(res[1] || []);
+      renderProvs(res[2] || []);
+    });
+  }
+
+  document.getElementById('btnSync').onclick = function () {
+    var t = document.getElementById('syncText'); t.textContent = 'Sincronitzant Gmail…';
+    B.api('/api/sync/gmail', { method:'POST' })
+      .then(function(){ t.textContent = 'Gmail sincronitzat · ara mateix'; refresh(); })
+      .catch(function(e){ alert('Error sincronitzant: '+e.message); t.textContent = 'Connectat · SQLite local'; });
+  };
+
+  refresh();
+})();
+</script>
+</body>
+</html>

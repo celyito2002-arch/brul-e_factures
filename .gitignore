@@ -1,0 +1,23 @@
+# Dependències
+node_modules/
+
+# Build
+dist/
+
+# Entorn (MAI committejar)
+.env
+
+# Base de dades local (font de veritat, no al repo)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# PDFs temporals abans de pujar a Supabase Storage
+uploads/
+
+# Logs / sistema
+*.log
+.DS_Store
+Thumbs.db
+.vercel
