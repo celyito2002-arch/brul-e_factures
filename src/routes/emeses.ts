@@ -1,66 +1,67 @@
 import { Router, type Request, type Response } from 'express';
-import { db } from '../db/db.js';
+import { supabase } from '../db/supabase.js';
 import { ESTAT_EMESA, type FacturaEmesa, type Paginacio } from '../types.js';
 
 // ============================================================
 //  /api/factures-emeses · factures emeses (clients)
-//  Llista, creació manual i canvi d'estat.
+//  Llista, creació manual i canvi d'estat. Dades a Postgres (Supabase).
 // ============================================================
 
 export const emesesRouter = Router();
 
+/** Missatge llegible d'un error de Supabase o de qualsevol excepció. */
+function missatgeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 // ---- GET /api/factures-emeses (llista paginada + filtres) -------------
 
-emesesRouter.get('/', (req: Request, res: Response) => {
+emesesRouter.get('/', async (req: Request, res: Response) => {
   const { estat, mes, clientNom } = req.query;
-
-  const where: string[] = [];
-  const params: Record<string, unknown> = {};
-
-  if (typeof estat === 'string' && (ESTAT_EMESA as readonly string[]).includes(estat)) {
-    where.push('estat = @estat');
-    params.estat = estat;
-  }
-  if (typeof mes === 'string' && /^\d{4}-\d{2}$/.test(mes)) {
-    where.push("dataDocument LIKE @mes || '%'");
-    params.mes = mes;
-  }
-  if (typeof clientNom === 'string' && clientNom.trim()) {
-    where.push('clientNom LIKE @clientNom');
-    params.clientNom = `%${clientNom.trim()}%`;
-  }
-
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? '20'), 10) || 20));
   const offset = (page - 1) * limit;
 
-  const total = (
-    db.prepare(`SELECT COUNT(*) AS n FROM factures_emeses ${whereSql}`).get(params) as { n: number }
-  ).n;
+  try {
+    let q = supabase.from('factures_emeses').select('*', { count: 'exact' });
 
-  const dades = db
-    .prepare(
-      `SELECT * FROM factures_emeses ${whereSql}
-       ORDER BY COALESCE(dataDocument, createdAt) DESC, id DESC
-       LIMIT @limit OFFSET @offset`,
-    )
-    .all({ ...params, limit, offset }) as FacturaEmesa[];
+    if (typeof estat === 'string' && (ESTAT_EMESA as readonly string[]).includes(estat)) {
+      q = q.eq('estat', estat);
+    }
+    if (typeof mes === 'string' && /^\d{4}-\d{2}$/.test(mes)) {
+      q = q.like('dataDocument', `${mes}%`);
+    }
+    if (typeof clientNom === 'string' && clientNom.trim()) {
+      q = q.ilike('clientNom', `%${clientNom.trim()}%`);
+    }
 
-  const resposta: Paginacio<FacturaEmesa> = {
-    dades,
-    total,
-    page,
-    limit,
-    pages: Math.max(1, Math.ceil(total / limit)),
-  };
-  res.json(resposta);
+    // Com a `factures`: sense data al final, desempat per `id`.
+    const { data, count, error } = await q
+      .order('dataDocument', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + limit - 1);
+
+    if (error) throw new Error(error.message);
+
+    const total = count ?? 0;
+    const resposta: Paginacio<FacturaEmesa> = {
+      dades: (data ?? []) as FacturaEmesa[],
+      total,
+      page,
+      limit,
+      pages: Math.max(1, Math.ceil(total / limit)),
+    };
+    return res.json(resposta);
+  } catch (err) {
+    console.error('✗ Error llistant factures emeses:', err);
+    return res.status(500).json({ error: missatgeError(err) });
+  }
 });
 
 // ---- POST /api/factures-emeses (creació manual) -----------------------
 
-emesesRouter.post('/', (req: Request, res: Response) => {
+emesesRouter.post('/', async (req: Request, res: Response) => {
   const b = req.body ?? {};
 
   if (typeof b.numero !== 'string' || !b.numero.trim()) {
@@ -69,16 +70,13 @@ emesesRouter.post('/', (req: Request, res: Response) => {
 
   const total = Number(b.total) || 0;
   const iva = b.iva != null ? Number(b.iva) : null;
-  const baseImposable = b.baseImposable != null ? Number(b.baseImposable) : total && iva != null ? total - iva : null;
+  const baseImposable =
+    b.baseImposable != null ? Number(b.baseImposable) : total && iva != null ? total - iva : null;
 
   try {
-    const info = db
-      .prepare(
-        `INSERT INTO factures_emeses
-           (numero, clientNom, clientNif, dataDocument, dataVenciment, baseImposable, iva, total, concepte, estat)
-         VALUES (@numero, @clientNom, @clientNif, @dataDocument, @dataVenciment, @baseImposable, @iva, @total, @concepte, 'pendent')`,
-      )
-      .run({
+    const { data, error } = await supabase
+      .from('factures_emeses')
+      .insert({
         numero: b.numero.trim(),
         clientNom: b.clientNom ?? null,
         clientNif: b.clientNif ?? null,
@@ -88,16 +86,21 @@ emesesRouter.post('/', (req: Request, res: Response) => {
         iva,
         total,
         concepte: b.concepte ?? null,
-      });
+        estat: 'pendent',
+      })
+      .select('*')
+      .single();
 
-    const creada = db
-      .prepare('SELECT * FROM factures_emeses WHERE id = ?')
-      .get(Number(info.lastInsertRowid)) as FacturaEmesa;
-    return res.status(201).json(creada);
-  } catch (err) {
-    if (String(err).includes('UNIQUE')) {
-      return res.status(409).json({ error: `Ja existeix una factura emesa amb el número "${b.numero}".` });
+    // 23505 = unique_violation sobre `numero`.
+    if (error?.code === '23505') {
+      return res
+        .status(409)
+        .json({ error: `Ja existeix una factura emesa amb el número "${b.numero}".` });
     }
+    if (error) throw new Error(error.message);
+
+    return res.status(201).json(data as FacturaEmesa);
+  } catch (err) {
     console.error('✗ Error creant factura emesa:', err);
     return res.status(500).json({ error: 'No s\'ha pogut crear la factura emesa.' });
   }
@@ -105,7 +108,7 @@ emesesRouter.post('/', (req: Request, res: Response) => {
 
 // ---- PATCH /api/factures-emeses/:id/estat -----------------------------
 
-emesesRouter.patch('/:id/estat', (req: Request, res: Response) => {
+emesesRouter.patch('/:id/estat', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'ID no vàlid.' });
 
@@ -114,9 +117,20 @@ emesesRouter.patch('/:id/estat', (req: Request, res: Response) => {
     return res.status(400).json({ error: `Estat no vàlid. Valors permesos: ${ESTAT_EMESA.join(', ')}.` });
   }
 
-  const info = db.prepare('UPDATE factures_emeses SET estat = ? WHERE id = ?').run(estat, id);
-  if (info.changes === 0) return res.status(404).json({ error: 'Factura emesa no trobada.' });
+  try {
+    const { data, error } = await supabase
+      .from('factures_emeses')
+      .update({ estat })
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
 
-  const factura = db.prepare('SELECT * FROM factures_emeses WHERE id = ?').get(id) as FacturaEmesa;
-  return res.json(factura);
+    if (error) throw new Error(error.message);
+    if (!data) return res.status(404).json({ error: 'Factura emesa no trobada.' });
+
+    return res.json(data as FacturaEmesa);
+  } catch (err) {
+    console.error('✗ Error actualitzant l\'estat de la factura emesa:', err);
+    return res.status(500).json({ error: missatgeError(err) });
+  }
 });

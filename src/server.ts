@@ -2,7 +2,6 @@ import express, { type NextFunction, type Request, type Response } from 'express
 import { MulterError } from 'multer';
 import { resolve } from 'node:path';
 import 'dotenv/config';
-import { initSchema } from './db/db.js';
 import { facturesRouter, pendentsRouter } from './routes/factures.js';
 import { emesesRouter } from './routes/emeses.js';
 import { statsRouter } from './routes/stats.js';
@@ -11,33 +10,35 @@ import { iniciarScheduler } from './services/scheduler.js';
 
 // ============================================================
 //  Brulée — Gestió de Factures · servidor Express
+//  Dades i fitxers a Supabase; l'app no manté cap estat local, de manera
+//  que el mateix mòdul serveix per a `npm run dev` i per a Vercel.
 // ============================================================
 
 const PORT = Number(process.env.PORT ?? 3000);
 const PUBLIC_DIR = resolve(process.cwd(), 'public');
 
-// 1) Assegura les taules SQLite (idempotent).
-initSchema();
+/** A Vercel cada petició arriba a una funció efímera: ni `listen` ni cron. */
+const A_VERCEL = Boolean(process.env.VERCEL);
 
 const app = express();
 app.use(express.json());
 
-// 2) Frontend estàtic.
+// 1) Frontend estàtic.
 app.use(express.static(PUBLIC_DIR));
 
-// 3) API.
+// 2) API.
 app.use('/api/factures', facturesRouter);
 app.use('/api/pendents', pendentsRouter);
 app.use('/api/factures-emeses', emesesRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/sync', syncRouter);
 
-// 4) 404 per a rutes /api desconegudes.
+// 3) 404 per a rutes /api desconegudes.
 app.use('/api', (_req: Request, res: Response) => {
   res.status(404).json({ error: 'Endpoint no trobat.' });
 });
 
-// 5) Gestió d'errors centralitzada (inclou errors de Multer).
+// 4) Gestió d'errors centralitzada (inclou errors de Multer).
 app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof MulterError) {
     const missatge =
@@ -48,17 +49,23 @@ app.use((err: unknown, _req: Request, res: Response, _next: NextFunction) => {
   return res.status(500).json({ error: 'Error intern del servidor.' });
 });
 
-// 6) Arrenca el servidor.
-app.listen(PORT, () => {
-  console.log(`🥐 Brulée Factures en marxa a http://localhost:${PORT}`);
-  console.log(`   Dashboard: http://localhost:${PORT}/`);
+// 5) Arrenca el servidor només en local: a Vercel el runtime importa l'app.
+if (!A_VERCEL) {
+  app.listen(PORT, () => {
+    console.log(`🥐 Brulée Factures en marxa a http://localhost:${PORT}`);
+    console.log(`   Dashboard: http://localhost:${PORT}/`);
 
-  // 7) Scheduler de Gmail: només si hi ha credencials configurades.
-  const gmailConfigurat =
-    process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN;
-  if (gmailConfigurat) {
-    iniciarScheduler();
-  } else {
-    console.log('ℹ️  Scheduler de Gmail desactivat (falten credencials al .env).');
-  }
-});
+    // 6) Scheduler de Gmail: només si hi ha credencials configurades.
+    //    A Vercel el polling l'ha de fer un Cron Job cridant /api/sync/gmail.
+    const gmailConfigurat =
+      process.env.GMAIL_CLIENT_ID && process.env.GMAIL_CLIENT_SECRET && process.env.GMAIL_REFRESH_TOKEN;
+    if (gmailConfigurat) {
+      iniciarScheduler();
+    } else {
+      console.log('ℹ️  Scheduler de Gmail desactivat (falten credencials al .env).');
+    }
+  });
+}
+
+// Handler per a `@vercel/node`: una app d'Express ja és `(req, res) => void`.
+export default app;

@@ -2,12 +2,13 @@ import cron from 'node-cron';
 import { realpathSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { initSchema, closeDb } from '../db/db.js';
 import { processarCicleGmail } from './gmail.js';
 
 // ============================================================
 //  Scheduler · polling de Gmail cada 15 minuts (node-cron).
 //  Ús com a script: `npm run sync` (mode --once, un sol cicle).
+//  A Vercel no s'executa: les funcions serverless no mantenen processos
+//  llargs, cal un Vercel Cron Job que cridi POST /api/sync/gmail.
 // ============================================================
 
 const CRON_CADA_15_MIN = '*/15 * * * *';
@@ -52,18 +53,15 @@ function esScriptPrincipal(): boolean {
 
 if (esScriptPrincipal()) {
   const once = process.argv.includes('--once');
-  initSchema(); // assegura que les taules existeixen
   if (once) {
     console.log('▶️  Executant un únic cicle de sincronització de Gmail…');
     processarCicleGmail()
       .then((r) => {
         console.log(`✅ Fet: ${r.processats} processats, ${r.errors} errors.`);
-        closeDb();
         process.exit(0);
       })
       .catch((err) => {
         console.error('✗ Error:', err);
-        closeDb();
         process.exit(1);
       });
   } else {

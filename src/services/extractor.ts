@@ -1,6 +1,6 @@
 import OpenAI, { toFile } from 'openai';
-import { readFile } from 'node:fs/promises';
 import { basename, extname } from 'node:path';
+import { llegirFitxer } from '../db/storage.js';
 import 'dotenv/config';
 import {
   extraccioSchema,
@@ -113,12 +113,13 @@ interface DocumentPreparat {
  * Prepara el document per a GPT-4o:
  * - PDF → puja a l'OpenAI Files API (`purpose: 'user_data'`) i el referencia com a `type: 'file'`.
  * - JPG/PNG/WebP → base64 `image_url`.
+ * `fitxerPath` és un camí dins del bucket `factures` de Supabase Storage.
  */
 async function preparaDocument(fitxerPath: string): Promise<DocumentPreparat> {
   const ext = extname(fitxerPath).toLowerCase();
 
   if (ext === '.pdf') {
-    const buffer = await readFile(fitxerPath);
+    const buffer = await llegirFitxer(fitxerPath);
     const pujat = await getOpenAI().files.create({
       file: await toFile(buffer, basename(fitxerPath), { type: 'application/pdf' }),
       purpose: 'user_data',
@@ -133,7 +134,7 @@ async function preparaDocument(fitxerPath: string): Promise<DocumentPreparat> {
   if (!mime) {
     throw new Error(`Format de fitxer no suportat per a l'extracció: ${ext}`);
   }
-  const buffer = await readFile(fitxerPath);
+  const buffer = await llegirFitxer(fitxerPath);
   const url = `data:${mime};base64,${buffer.toString('base64')}`;
   return {
     parts: [{ type: 'image_url', image_url: { url, detail: 'high' } }],

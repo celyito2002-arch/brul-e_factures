@@ -1,6 +1,6 @@
 import { google, type gmail_v1 } from 'googleapis';
 import 'dotenv/config';
-import { db } from '../db/db.js';
+import { supabase } from '../db/supabase.js';
 import { desarFitxer } from '../db/storage.js';
 import { getOpenAI } from './extractor.js';
 import { ingestarFactura } from './ingest.js';
@@ -10,7 +10,7 @@ import type { ResultatEmail, ResultatSync } from '../types.js';
 //  Gmail · lectura de correu + adjunts → canonada d'ingesta
 //  Query: has:attachment (pdf|jpg|png) is:unread · màx. 10/cicle
 //  Pre-filtre amb GPT-4o-mini abans de baixar cap adjunt (estalvi de tokens).
-//  Idempotència via taula `emails_processats` (gmailId).
+//  Idempotència via taula `emails_processats` (gmailId) a Supabase.
 // ============================================================
 
 const MAX_EMAILS_PER_CICLE = 10;
@@ -39,20 +39,38 @@ function getGmail(): gmail_v1.Gmail {
   return _gmail;
 }
 
-// ---- Idempotència + registre ------------------------------------------
+// ---- Idempotència + registre (taula `emails_processats` a Supabase) ----
 
-const jaProcessat = db.prepare('SELECT 1 FROM emails_processats WHERE gmailId = ?');
-const marcarProcessat = db.prepare(
-  'INSERT OR IGNORE INTO emails_processats (gmailId, resultat, subject, fromAddress) VALUES (?, ?, ?, ?)',
-);
+/** Cert si aquest missatge ja es va tractar en un cicle anterior. */
+async function jaProcessat(gmailId: string): Promise<boolean> {
+  const { data, error } = await supabase
+    .from('emails_processats')
+    .select('id')
+    .eq('gmailId', gmailId)
+    .maybeSingle();
 
-function registrarEmail(
+  if (error) throw new Error(`Supabase (emails_processats): ${error.message}`);
+  return data !== null;
+}
+
+/**
+ * Deixa constància del missatge. `ignoreDuplicates` fa d'`INSERT OR IGNORE`:
+ * si dos cicles se solapen, el segon no peta per la restricció única de `gmailId`.
+ */
+async function registrarEmail(
   gmailId: string,
   resultat: ResultatEmail,
   subject: string | null,
   fromAddress: string | null,
-): void {
-  marcarProcessat.run(gmailId, resultat, subject, fromAddress);
+): Promise<void> {
+  const { error } = await supabase
+    .from('emails_processats')
+    .upsert({ gmailId, resultat, subject, fromAddress }, {
+      onConflict: 'gmailId',
+      ignoreDuplicates: true,
+    });
+
+  if (error) console.warn(`⚠️  No s'ha pogut registrar l'email ${gmailId}:`, error.message);
 }
 
 // ---- Utilitats sobre el payload MIME ----------------------------------
@@ -119,7 +137,7 @@ Respon NO si és un newsletter, notificació, confirmació de comanda sense docu
 
 // ---- Descàrrega d'adjunts ---------------------------------------------
 
-/** Descarrega un adjunt a `uploads/` (via storage.ts) i retorna la ruta local. */
+/** Descarrega un adjunt al bucket `factures` (via storage.ts) i retorna el seu camí. */
 async function baixarAdjunt(
   gmail: gmail_v1.Gmail,
   messageId: string,
@@ -226,17 +244,17 @@ export async function processarCicleGmail(): Promise<ResultatSync> {
 
   for (const m of missatges) {
     if (!m.id) continue;
-    if (jaProcessat.get(m.id)) continue; // ja tractat en un cicle anterior
+    if (await jaProcessat(m.id)) continue; // ja tractat en un cicle anterior
 
     try {
       const { resultat, subject, fromAddress } = await processarEmail(gmail, m.id);
-      registrarEmail(m.id, resultat, subject, fromAddress);
+      await registrarEmail(m.id, resultat, subject, fromAddress);
       await marcarLlegit(gmail, m.id);
       if (resultat === 'error') errors += 1;
       else processats += 1;
     } catch (err) {
       console.error(`✗ Error processant l'email ${m.id}:`, err);
-      registrarEmail(m.id, 'error', null, null);
+      await registrarEmail(m.id, 'error', null, null);
       errors += 1;
     }
   }

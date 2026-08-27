@@ -1,9 +1,9 @@
 import { Router, type Request, type Response } from 'express';
 import multer from 'multer';
-import { existsSync, mkdirSync } from 'node:fs';
-import { extname, resolve } from 'node:path';
-import { db } from '../db/db.js';
-import { getSupabase, ingestarFactura } from '../services/ingest.js';
+import { extname } from 'node:path';
+import { supabase } from '../db/supabase.js';
+import { desarFitxer, llegirFitxer, mimeDe } from '../db/storage.js';
+import { ingestarFactura } from '../services/ingest.js';
 import {
   ESTAT_FACTURA,
   TIPUS_FACTURA,
@@ -14,78 +14,90 @@ import {
 
 // ============================================================
 //  /api/factures · llista, detall, canvi d'estat, importació manual
+//  Dades a Postgres (Supabase); originals al bucket `factures`.
 // ============================================================
 
 export const facturesRouter = Router();
 
+/** Missatge llegible d'un error de Supabase o de qualsevol excepció. */
+function missatgeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 // ---- GET /api/factures (llista paginada + filtres) --------------------
 
-facturesRouter.get('/', (req: Request, res: Response) => {
+facturesRouter.get('/', async (req: Request, res: Response) => {
   const { estat, tipus, mes, proveidorNom } = req.query;
-
-  const where: string[] = [];
-  const params: Record<string, unknown> = {};
-
-  if (typeof estat === 'string' && (ESTAT_FACTURA as readonly string[]).includes(estat)) {
-    where.push('estat = @estat');
-    params.estat = estat;
-  }
-  if (typeof tipus === 'string' && (TIPUS_FACTURA as readonly string[]).includes(tipus)) {
-    where.push('tipus = @tipus');
-    params.tipus = tipus;
-  }
-  if (typeof mes === 'string' && /^\d{4}-\d{2}$/.test(mes)) {
-    where.push("dataDocument LIKE @mes || '%'");
-    params.mes = mes;
-  }
-  if (typeof proveidorNom === 'string' && proveidorNom.trim()) {
-    where.push('proveidorNom LIKE @proveidorNom');
-    params.proveidorNom = `%${proveidorNom.trim()}%`;
-  }
-
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
   const page = Math.max(1, parseInt(String(req.query.page ?? '1'), 10) || 1);
   const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit ?? '20'), 10) || 20));
   const offset = (page - 1) * limit;
 
-  const total = (
-    db.prepare(`SELECT COUNT(*) AS n FROM factures ${whereSql}`).get(params) as { n: number }
-  ).n;
+  try {
+    let q = supabase.from('factures').select('*', { count: 'exact' });
 
-  const dades = db
-    .prepare(
-      `SELECT * FROM factures ${whereSql}
-       ORDER BY COALESCE(dataDocument, createdAt) DESC, id DESC
-       LIMIT @limit OFFSET @offset`,
-    )
-    .all({ ...params, limit, offset }) as Factura[];
+    if (typeof estat === 'string' && (ESTAT_FACTURA as readonly string[]).includes(estat)) {
+      q = q.eq('estat', estat);
+    }
+    if (typeof tipus === 'string' && (TIPUS_FACTURA as readonly string[]).includes(tipus)) {
+      q = q.eq('tipus', tipus);
+    }
+    if (typeof mes === 'string' && /^\d{4}-\d{2}$/.test(mes)) {
+      q = q.like('dataDocument', `${mes}%`);
+    }
+    if (typeof proveidorNom === 'string' && proveidorNom.trim()) {
+      q = q.ilike('proveidorNom', `%${proveidorNom.trim()}%`);
+    }
 
-  const resposta: Paginacio<Factura> = {
-    dades,
-    total,
-    page,
-    limit,
-    pages: Math.max(1, Math.ceil(total / limit)),
-  };
-  res.json(resposta);
+    // Equival a `COALESCE(dataDocument, createdAt) DESC, id DESC`: PostgREST no
+    // té COALESCE dins d'`order`, així que les factures sense data van al final.
+    const { data, count, error } = await q
+      .order('dataDocument', { ascending: false, nullsFirst: false })
+      .order('id', { ascending: false })
+      .range(offset, offset + limit - 1);
+    if (error) throw new Error(error.message);
+
+    const total = count ?? 0;
+    const resposta: Paginacio<Factura> = {
+      dades: (data ?? []) as Factura[],
+      total,
+      page,
+      limit,
+      pages: Math.max(1, Math.ceil(total / limit)),
+    };
+    return res.json(resposta);
+  } catch (err) {
+    console.error('✗ Error llistant factures:', err);
+    return res.status(500).json({ error: missatgeError(err) });
+  }
 });
 
 // ---- GET /api/factures/:id (detall + rawExtractJson) ------------------
 
-facturesRouter.get('/:id', (req: Request, res: Response) => {
+facturesRouter.get('/:id', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'ID no vàlid.' });
 
-  const factura = db.prepare('SELECT * FROM factures WHERE id = ?').get(id) as Factura | undefined;
-  if (!factura) return res.status(404).json({ error: 'Factura no trobada.' });
+  try {
+    const { data, error } = await supabase
+      .from('factures')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
 
-  return res.json(factura);
+    if (error) throw new Error(error.message);
+    if (!data) return res.status(404).json({ error: 'Factura no trobada.' });
+
+    return res.json(data as Factura);
+  } catch (err) {
+    console.error('✗ Error llegint la factura:', err);
+    return res.status(500).json({ error: missatgeError(err) });
+  }
 });
 
 // ---- PATCH /api/factures/:id/estat ------------------------------------
 
-facturesRouter.patch('/:id/estat', (req: Request, res: Response) => {
+facturesRouter.patch('/:id/estat', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'ID no vàlid.' });
 
@@ -96,53 +108,68 @@ facturesRouter.patch('/:id/estat', (req: Request, res: Response) => {
     });
   }
 
-  const info = db.prepare('UPDATE factures SET estat = ? WHERE id = ?').run(estat, id);
-  if (info.changes === 0) return res.status(404).json({ error: 'Factura no trobada.' });
+  try {
+    // A SQLite un trigger mantenia `updatedAt`; a Postgres el posem aquí.
+    const { data, error } = await supabase
+      .from('factures')
+      .update({ estat, updatedAt: new Date().toISOString() })
+      .eq('id', id)
+      .select('*')
+      .maybeSingle();
 
-  const factura = db.prepare('SELECT * FROM factures WHERE id = ?').get(id) as Factura;
-  return res.json(factura);
+    if (error) throw new Error(error.message);
+    if (!data) return res.status(404).json({ error: 'Factura no trobada.' });
+
+    return res.json(data as Factura);
+  } catch (err) {
+    console.error('✗ Error actualitzant l\'estat:', err);
+    return res.status(500).json({ error: missatgeError(err) });
+  }
 });
 
 // ---- GET /api/factures/:id/pdf (descàrrega del fitxer original) -------
 
-facturesRouter.get('/:id/pdf', (req: Request, res: Response) => {
+facturesRouter.get('/:id/pdf', async (req: Request, res: Response) => {
   const id = parseInt(req.params.id, 10);
   if (Number.isNaN(id)) return res.status(400).json({ error: 'ID no vàlid.' });
 
-  const factura = db
-    .prepare('SELECT fitxerLocal, proveidorNom, dataDocument FROM factures WHERE id = ?')
-    .get(id) as { fitxerLocal: string | null; proveidorNom: string | null; dataDocument: string | null } | undefined;
+  try {
+    const { data: factura, error } = await supabase
+      .from('factures')
+      .select('fitxerLocal, proveidorNom, dataDocument')
+      .eq('id', id)
+      .maybeSingle();
 
-  if (!factura) return res.status(404).json({ error: 'Factura no trobada.' });
-  if (!factura.fitxerLocal) return res.status(404).json({ error: 'Aquesta factura no té fitxer adjunt.' });
-  if (!existsSync(factura.fitxerLocal)) return res.status(404).json({ error: 'Fitxer no trobat al disc.' });
+    if (error) throw new Error(error.message);
+    if (!factura) return res.status(404).json({ error: 'Factura no trobada.' });
+    if (!factura.fitxerLocal) {
+      return res.status(404).json({ error: 'Aquesta factura no té fitxer adjunt.' });
+    }
 
-  const ext = extname(factura.fitxerLocal) || '.pdf';
-  const nomNet = `${factura.proveidorNom ?? 'factura'}_${factura.dataDocument ?? 'sense-data'}${ext}`
-    .replace(/["\r\n]/g, '')
-    .replace(/\s+/g, '_');
+    const buffer = await llegirFitxer(factura.fitxerLocal);
 
-  res.setHeader('Content-Disposition', `attachment; filename="${nomNet}"`);
-  return res.sendFile(factura.fitxerLocal);
+    const ext = extname(factura.fitxerLocal) || '.pdf';
+    const nomNet = `${factura.proveidorNom ?? 'factura'}_${factura.dataDocument ?? 'sense-data'}${ext}`
+      .replace(/["\r\n]/g, '')
+      .replace(/\s+/g, '_');
+
+    res.setHeader('Content-Type', mimeDe(factura.fitxerLocal));
+    res.setHeader('Content-Disposition', `attachment; filename="${nomNet}"`);
+    return res.send(buffer);
+  } catch (err) {
+    console.error('✗ Error descarregant el fitxer:', err);
+    return res.status(404).json({ error: 'Fitxer no trobat al bucket.' });
+  }
 });
 
 // ---- POST /api/factures/import (multipart: file) ----------------------
 
-const UPLOADS_DIR = resolve(process.cwd(), 'uploads');
-mkdirSync(UPLOADS_DIR, { recursive: true });
-
 const EXTENSIONS_VALIDES = /\.(pdf|jpe?g|png)$/i;
 
-const storage = multer.diskStorage({
-  destination: (_req, _file, cb) => cb(null, UPLOADS_DIR),
-  filename: (_req, file, cb) => {
-    const ext = extname(file.originalname).toLowerCase() || '.pdf';
-    cb(null, `manual_${Date.now()}${ext}`);
-  },
-});
-
+// A memòria, no a disc: a Vercel el filesystem és efímer i el fitxer va
+// directe al bucket de Supabase Storage.
 const upload = multer({
-  storage,
+  storage: multer.memoryStorage(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB
   fileFilter: (_req, file, cb) => {
     if (EXTENSIONS_VALIDES.test(file.originalname)) cb(null, true);
@@ -154,7 +181,9 @@ facturesRouter.post('/import', upload.single('file'), async (req: Request, res: 
   if (!req.file) return res.status(400).json({ error: 'Cap fitxer rebut (camp "file").' });
 
   try {
-    const resultat = await ingestarFactura(req.file.path, 'manual');
+    const ext = extname(req.file.originalname).toLowerCase() || '.pdf';
+    const ruta = await desarFitxer(req.file.buffer, `manual_${Date.now()}${ext}`);
+    const resultat = await ingestarFactura(ruta, 'manual');
     return res.status(201).json(resultat);
   } catch (err) {
     console.error('✗ Error en la importació manual:', err);
@@ -163,10 +192,10 @@ facturesRouter.post('/import', upload.single('file'), async (req: Request, res: 
 });
 
 // ============================================================
-//  /api/pendents · safata de revisió (taula `gastos_pendents` a Supabase)
+//  /api/pendents · safata de revisió (taula `gastos_pendents`)
 //  Tot el que entra per Gmail o per importació manual hi aterra primer.
-//  Confirmar → crea la factura a SQLite i buida la fila de la safata.
-//  Descartar → només esborra la fila (el fitxer resta a `uploads/`).
+//  Confirmar → crea la factura a `factures` i buida la fila de la safata.
+//  Descartar → esborra només la fila; l'original es conserva al bucket.
 // ============================================================
 
 export const pendentsRouter = Router();
@@ -199,23 +228,10 @@ function pendentAFactura(p: GastPendent): Record<string, unknown> {
   };
 }
 
-const insertFacturaConfirmada = db.prepare(`
-  INSERT INTO factures (
-    tipus, numero, proveidorNom, proveidorNif, dataDocument, dataVenciment,
-    baseImposable, iva, total, moneda, concepte, estat, fontEntrada,
-    fitxerLocal, driveId, drivePath, confian_ia, rawExtractJson
-  ) VALUES (
-    @tipus, @numero, @proveidorNom, @proveidorNif, @dataDocument, @dataVenciment,
-    @baseImposable, @iva, @total, @moneda, @concepte, @estat, @fontEntrada,
-    @fitxerLocal, @driveId, @drivePath, @confian_ia, @rawExtractJson
-  )
-`);
-
 // ---- GET /api/pendents (safata sencera, més recents primer) ----------
 
 pendentsRouter.get('/', async (_req: Request, res: Response) => {
   try {
-    const supabase = await getSupabase();
     const { data, error } = await supabase
       .from('gastos_pendents')
       .select('*')
@@ -225,7 +241,7 @@ pendentsRouter.get('/', async (_req: Request, res: Response) => {
     return res.json({ dades: (data ?? []) as GastPendent[], total: data?.length ?? 0 });
   } catch (err) {
     console.error('✗ Error llegint la safata de revisió:', err);
-    return res.status(500).json({ error: String(err instanceof Error ? err.message : err) });
+    return res.status(500).json({ error: missatgeError(err) });
   }
 });
 
@@ -236,8 +252,6 @@ pendentsRouter.post('/:id/confirmar', async (req: Request, res: Response) => {
   if (Number.isNaN(id)) return res.status(400).json({ error: 'ID no vàlid.' });
 
   try {
-    const supabase = await getSupabase();
-
     const { data: pendent, error: errLectura } = await supabase
       .from('gastos_pendents')
       .select('*')
@@ -251,21 +265,27 @@ pendentsRouter.post('/:id/confirmar', async (req: Request, res: Response) => {
     const edicions = (req.body ?? {}) as Partial<GastPendent>;
     const fila = pendentAFactura({ ...(pendent as GastPendent), ...edicions });
 
-    const info = insertFacturaConfirmada.run(fila);
-    const factura = db
-      .prepare('SELECT * FROM factures WHERE id = ?')
-      .get(Number(info.lastInsertRowid)) as Factura;
+    const { data: factura, error: errInsercio } = await supabase
+      .from('factures')
+      .insert(fila)
+      .select('*')
+      .single();
 
-    // Només buidem la safata un cop la factura ja és a SQLite.
+    if (errInsercio) throw new Error(errInsercio.message);
+
+    // Només buidem la safata un cop la factura ja existeix.
     const { error: errEsborrat } = await supabase.from('gastos_pendents').delete().eq('id', id);
     if (errEsborrat) {
-      console.warn(`⚠️  Factura #${factura.id} creada però la pendent #${id} no s'ha esborrat:`, errEsborrat.message);
+      console.warn(
+        `⚠️  Factura #${factura.id} creada però la pendent #${id} no s'ha esborrat:`,
+        errEsborrat.message,
+      );
     }
 
-    return res.status(201).json(factura);
+    return res.status(201).json(factura as Factura);
   } catch (err) {
     console.error('✗ Error confirmant la despesa pendent:', err);
-    return res.status(500).json({ error: String(err instanceof Error ? err.message : err) });
+    return res.status(500).json({ error: missatgeError(err) });
   }
 });
 
@@ -276,7 +296,6 @@ pendentsRouter.delete('/:id', async (req: Request, res: Response) => {
   if (Number.isNaN(id)) return res.status(400).json({ error: 'ID no vàlid.' });
 
   try {
-    const supabase = await getSupabase();
     const { data, error } = await supabase
       .from('gastos_pendents')
       .delete()
@@ -284,11 +303,13 @@ pendentsRouter.delete('/:id', async (req: Request, res: Response) => {
       .select('id');
 
     if (error) throw new Error(error.message);
-    if (!data || data.length === 0) return res.status(404).json({ error: 'Despesa pendent no trobada.' });
+    if (!data || data.length === 0) {
+      return res.status(404).json({ error: 'Despesa pendent no trobada.' });
+    }
 
     return res.json({ ok: true, id });
   } catch (err) {
     console.error('✗ Error descartant la despesa pendent:', err);
-    return res.status(500).json({ error: String(err instanceof Error ? err.message : err) });
+    return res.status(500).json({ error: missatgeError(err) });
   }
 });

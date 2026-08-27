@@ -1,7 +1,7 @@
 {
   "name": "brulee-factures",
   "version": "1.0.0",
-  "description": "Gestió local de factures per a la panaderia artesana Brulée (Andorra)",
+  "description": "Gestió de factures per a la panaderia artesana Brulée (Andorra) · Supabase + Vercel",
   "type": "module",
   "private": true,
   "engines": {
@@ -11,13 +11,11 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc",
     "start": "node dist/server.js",
-    "setup": "tsx src/db/setup.ts",
     "sync": "tsx src/services/scheduler.ts --once",
     "get-token": "tsx scripts/get-token.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.112.4",
-    "better-sqlite3": "^12.2.0",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "googleapis": "^140.0.1",
@@ -27,7 +25,6 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.11",
     "@types/express": "^4.17.21",
     "@types/multer": "^1.4.12",
     "@types/node": "^20.14.15",
